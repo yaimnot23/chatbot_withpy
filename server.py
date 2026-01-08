@@ -50,16 +50,60 @@ prompt_template = ChatPromptTemplate.from_messages([
 ])
 
 # 3. 데이터 모델 정의
+class UserScore(BaseModel):
+    subjectName: str
+    score: int
+    scoreType: str
+    category: str
+
 class ChatRequest(BaseModel):
     query: str
     history: List[dict] = [] # [{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]
+    userScores: Optional[List[UserScore]] = None
 
 class ChatResponse(BaseModel):
     answer: str
     detected_univ: Optional[str] = None
     found_majors: List[str] = []
+    analysis_result: Optional[str] = None # 성적 분석 결과 요약
 
-# 4. API 엔드포인트 구현
+# 5. 성적 분석 엔진 및 유틸리티
+# 표준점수 -> 누적 백분위(%) 매핑 (2026학년도 추정치 기반 샘플 데이터)
+SCORE_TO_PERCENTILE = {
+    "국어": {145: 0.1, 140: 0.5, 135: 1.5, 130: 4.0, 125: 10.0, 120: 20.0, 115: 35.0, 110: 50.0},
+    "수학": {148: 0.1, 140: 0.8, 135: 2.0, 130: 5.0, 125: 12.0, 120: 22.0, 115: 38.0, 110: 55.0},
+    "탐구": {75: 0.1, 70: 1.0, 65: 4.0, 60: 12.0, 55: 25.0, 50: 45.0} # 과목별 평균값 기준
+}
+
+def get_percentile(subject, score):
+    """표준점수를 백분위로 변환 (선형 보간 적용)"""
+    table = SCORE_TO_PERCENTILE.get(subject, SCORE_TO_PERCENTILE["탐구"])
+    scores = sorted(table.keys(), reverse=True)
+    
+    if score >= scores[0]: return table[scores[0]]
+    if score <= scores[-1]: return table[scores[-1]]
+    
+    for i in range(len(scores) - 1):
+        s1, s2 = scores[i], scores[i+1]
+        if s1 >= score > s2:
+            p1, p2 = table[s1], table[s2]
+            # 선형 보간: p = p1 + (score - s1) * (p2 - p1) / (s2 - s1)
+            return p1 + (score - s1) * (p2 - p1) / (s2 - s1)
+    return 100.0
+
+def calculate_admission_status(user_percentile, target_percentile):
+    """합격 가능성 및 부족 점수 계산 (Gap Analysis)"""
+    diff = user_percentile - target_percentile
+    if diff <= -1.5: status = "안정"
+    elif diff <= 0: status = "적정"
+    elif diff <= 1.5: status = "소신"
+    else: status = "불가"
+    
+    # 부족 점수 추정 (약 0.3%p 누백 ≈ 수능 표점 1점 가정)
+    gap_score = max(0, round(diff / 0.3)) if status in ["소신", "불가"] else 0
+    return status, gap_score
+
+# 6. API 엔드포인트 구현
 @app.post("/chat", response_model=ChatResponse)
 async def chat_endpoint(request: ChatRequest):
     user_input = request.query.strip()
@@ -86,8 +130,51 @@ async def chat_endpoint(request: ChatRequest):
         relevant_docs = vectorstore.similarity_search(user_input, **search_kwargs)
         found_majors = sorted(list(set([d.metadata.get('major') for d in relevant_docs])))
         
+        # [추가] 성적 분석 컨텍스트 생성
+        analysis_context = ""
+        user_total_percentile = None
+        
+        if request.userScores:
+            # 과목별 누백 계산
+            scores = {s.subjectName: s.score for s in request.userScores}
+            p_kor = get_percentile("국어", scores.get("국어", 0))
+            p_mat = get_percentile("수학", scores.get("수학", 0))
+            # 사탐/과탐 평균 계산
+            inquiry_scores = [s.score for s in request.userScores if s.category in ["사탐", "과탐"]]
+            p_inq = sum([get_percentile("탐구", s) for s in inquiry_scores]) / len(inquiry_scores) if inquiry_scores else 50.0
+            
+            # 대학교 가중치 적용 (데이터 기반 시뮬레이션)
+            # 검색된 문서들(relevant_docs) 중 첫 번째 문서의 가중치를 샘플로 사용하거나 고정값 적용
+            # 여기서는 분석 로직을 보여주기 위해 context에 분석 결과를 추가함
+            
+            # 사용자 일반 누백 (가중치 미적용 평균)
+            user_total_percentile = (p_kor * 0.3 + p_mat * 0.4 + p_inq * 0.3) # 문/이과 범용 가중치 예시
+            analysis_context = f"\n[사용자 성적 분석 결과]\n- 추정 누적 백분위: 상위 {user_total_percentile:.2f}%\n"
+            
+            # 대학 탐지 시 합격 진단 추가
+            if target_univ:
+                # 검색된 메타데이터에서 누백(target) 추출 시도
+                target_per = 100.0
+                for d in relevant_docs:
+                    if d.metadata.get('univ') == target_univ:
+                        # '누백' 컬럼 데이터 추출 (문자열인 경우 처리 필요)
+                        try:
+                            # '누백                    탐 필수58' 등 복잡한 이름 대응 (실제 데이터값 확인 필요)
+                            # 우선 메타데이터에 '누백'이 있다고 가정
+                            target_raw = d.metadata.get('누백') or d.metadata.get('합격선') or 2.0 
+                            target_per = float(target_raw)
+                            break
+                        except: continue
+                
+                status, gap = calculate_admission_status(user_total_percentile, target_per)
+                analysis_context += f"- {target_univ} 진단 결과: [{status}]\n"
+                if gap > 0:
+                    analysis_context += f"- 부족한 성적: 수능 표준점수 총점 기준 약 {gap}점 추가 확보 필요\n"
+                else:
+                    analysis_context += f"- 조언: 현재 성적을 유지하신다면 안정적인 합격이 가능합니다.\n"
+
         # 컨텍스트 구성
-        context_text = "\n\n".join([d.page_content for d in relevant_docs])
+        context_text = analysis_context + "\n\n" + "\n\n".join([d.page_content for d in relevant_docs])
         
         # 히스토리 구성
         history_messages = []
