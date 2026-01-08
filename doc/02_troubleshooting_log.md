@@ -32,7 +32,32 @@
 - **원인**: GitHub 닉네임과 Hugging Face 닉네임 불일치 및 Space 이름 오타.
 - **해결**: `ChatbotService.java`의 URL 주소를 실제 Hugging Face Public URL로 정확하게 수정하고, Space의 Visibility를 **Public**으로 설정함.
 
-## 🛑 Issue 5: AI 서버 500 에러 (context_text 미정의)
+## 🛑 Issue 5: Missing `context_text` definition (2026.01.07)
+
+- Cause: Removed during history implementation.
+- Fix: Restored variable definition in `server.py`.
+
+## 🛑 Issue 6: Terminal Encoding & Excel Column Mapping (2026.01.08)
+
+- Cause: Korean characters in Excel headers caused processing errors.
+- Fix: Created `debug_headers.py` with explicit UTF-8 encoding to verify exact mapping.
+
+## 🛑 Issue 7: JPA Modification Risk (Safety concern) (2026.01.08)
+
+- Cause: Modifying existing `StudentProfile` might break others' work.
+- Fix: Implemented Option B (Separate `StudentScore` table) to decouple logic.
+
+## 🛑 Issue 8: AI Persona Inertia (Calculation Denial) (2026.01.08)
+
+- Cause: AI's cautious nature led it to deny calculation capabilities despite having the data.
+- Fix: Strengthened system prompt with an 'Expert Persona' and formatted analysis as a 'Internal Diagnostic Report'.
+
+## 🛑 Issue 9: Data Ingestion Speed (Paid API Optimization) (2026.01.08)
+
+- Cause: Default ingestion settings were too slow for a paid API environment.
+- Fix: Increased batch size and removed unnecessary sleep delays in `ingest.py`.
+
+## 🛑 Issue 10: AI 서버 500 에러 (context_text 미정의)
 
 - **현상**: 대화 내역(Memory) 기능 추가 후 챗봇 답변 시 `name 'context_text' is not defined` 에러 발생.
 - **원인**: 코드 리팩토링 과정에서 검색 데이터를 담는 `context_text` 변수 선언부가 누락됨.

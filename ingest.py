@@ -61,12 +61,17 @@ def ingest_data():
                     f"영어 {row.get('영어구성비','')}, 탐구 {row.get('탐구구성비','')}."
                 )
                 
-                # 메타데이터 저장 (필터링 등에 활용 가능)
+                # 메타데이터 저장 (분석 엔진에서 활용)
                 metadata = {
                     "source": f"{univ} {major}",
                     "univ": univ,
                     "major": major,
-                    "sheet": sheet_name
+                    "sheet": sheet_name,
+                    "누백": str(row.get('누백', '')).strip(),
+                    "적정점수": str(row.get('적정점수', '')).strip(),
+                    "국어비중": str(row.get('국어구성비', '')).strip(),
+                    "수학비중": str(row.get('수학구성비', '')).strip(),
+                    "탐구비중": str(row.get('탐구구성비', '')).strip()
                 }
                 documents.append(Document(page_content=content, metadata=metadata))
 
@@ -82,26 +87,25 @@ def ingest_data():
             embedding_function=embeddings
         )
 
-        batch_size = 50  # 조금 더 큰 단위로 처리
+        batch_size = 100  # 유료 버전이므로 배치 사이즈 확대
         for i in tqdm(range(0, len(documents), batch_size), desc="저장 진행률"):
             batch = documents[i : i + batch_size]
             
-            # Rate Limit(429 에러) 발생 시 재시도 로직
-            max_retries = 5
+            # 유료 버전은 속도 제한이 거의 없으므로 즉시 처리
+            max_retries = 3
             for attempt in range(max_retries):
                 try:
                     vectorstore.add_documents(batch)
                     break 
                 except Exception as e:
                     if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
-                        wait_time = (attempt + 1) * 10 # 실패할수록 더 오래 대기 (10초, 20초...)
+                        wait_time = (attempt + 1) * 2 # 대기 시간 대폭 단축
                         print(f"\n⚠️ Rate Limit 도달! {wait_time}초 후 재시도합니다... ({attempt+1}/{max_retries})")
                         time.sleep(wait_time)
                     else:
                         raise e
             
-            # 기본 휴식 시간 (API 안정성을 위해)
-            time.sleep(1)
+            # 별도의 휴식 시간 제거
 
         print(f"🎉 모든 데이터가 '{db_path}' 폴더에 성공적으로 저장되었습니다!")
 

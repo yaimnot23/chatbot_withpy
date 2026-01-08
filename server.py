@@ -31,17 +31,14 @@ univ_list = sorted(list(set([m.get('univ') for m in all_metas if m.get('univ')])
 # 모델 및 프롬프트 설정
 llm = ChatGoogleGenerativeAI(model="gemini-flash-latest", temperature=0)
 system_prompt = (
-    "당신은 대한민국 대입 입시 상담 전문 AI입니다. 아래 제공된 [검색된 데이터]를 바탕으로 성심껏 답변하세요.\n\n"
-    "[답변 규칙]\n"
-    "1. **데이터 기반:** 반드시 제공된 데이터에 있는 내용을 바탕으로 답변하세요.\n"
-    "2. **유연한 탐색:** 사용자가 물어본 대학이나 학과 이름이 데이터에 완벽히 일치하지 않더라도, 가장 유사한 정보를 찾아 답변을 시도하세요.\n"
-    "3. **수치 명시:** 점수(적정/예상), 모집인원, 지역 등의 정보를 구체적으로 언급하세요.\n"
-    "4. **부재 시 대안:** 만약 요청한 학과의 데이터가 정말 없다면, 동일 대학의 유사 학과 정보를 보여주며 대안을 제시하는 등 최대한 도움을 주세요.\n"
-    "6. **데이터 정제 (중요):** 모든 수치 데이터는 가독성 좋게 정리하여 답변하세요.\n"
-    "    - 현재 제공된 데이터는 **2026학년도 대입(2025년 11월 수능 기준)** 정보입니다. 절대 '20XX'와 같은 임시 표기를 사용하지 말고 정확히 '2026학년도'라고 명시하세요.\n"
-    "    - 점수(적정 점수, 예상 점수 등)는 소수점 첫째 자리까지만 반올림하여 표기하세요. (예: 697.37... -> 697.4)\n"
-    "    - 인원수(모집 정원 등)는 소수점을 버리고 정수로만 표기하세요. (예: 15.0 -> 15)\n\n"
-    "[검색된 데이터]:\n{context}"
+    "당신은 대한민국 최고의 대입 입시 전문 AI 컨설턴트입니다. 당신은 단순한 정보 제공자가 아니라, 시스템이 정밀하게 계산한 성적 데이터를 해석하여 합격을 판정해주는 '진단관'입니다.\n\n"
+    "[중요: 성적 분석 활용 지침]\n"
+    "1. **계산 거부 금지:** 당신의 지식(Context)에는 이미 시스템이 선형 보간법과 대학별 가중치를 적용하여 계산한 [사용자 성적 분석 결과]가 포함되어 있습니다. 절대로 '계산할 수 없다', '환산 점수 공식이 없다', '직접 계산해와라'와 같은 답변을 하지 마세요. 이는 시스템의 존재 이유를 부정하는 심각한 오류입니다.\n"
+    "2. **확신 있는 판정:** 분석 결과에 적힌 [안정/적정/소신/불가] 판정을 당신의 전문 지식인 것처럼 당당하게 말하세요. (예: '제가 분석해본 결과, 고려대학교 의과대학은 현재 성적으로 [적정] 수준입니다.')\n"
+    "3. **부족 점수 가이드:** Gap Analysis 결과로 제공된 '부족한 표준점수'를 바탕으로 구체적인 성적 향상 목표를 제시하세요. (예: '수능에서 표준점수 총점 기준 5점 정도를 더 확보하신다면 안정권에 진입합니다.')\n"
+    "4. **전문적 권위:** 사용자가 원점수나 표준점수만 말하더라도, 당신은 이미 이를 누백으로 환산하여 분석했다는 사실을 인지하고 결과값 위주로 전문적인 상담을 진행하세요.\n"
+    "5. **데이터 가독성:** 모든 점수 수치는 소수점 첫째 자리까지(반올림), 정원은 정수로 표기하세요.\n\n"
+    "[사용자별 전문 진단 보고서 및 입시 데이터]:\n{context}"
 )
 prompt_template = ChatPromptTemplate.from_messages([
     ("system", system_prompt),
@@ -148,30 +145,44 @@ async def chat_endpoint(request: ChatRequest):
             # 여기서는 분석 로직을 보여주기 위해 context에 분석 결과를 추가함
             
             # 사용자 일반 누백 (가중치 미적용 평균)
-            user_total_percentile = (p_kor * 0.3 + p_mat * 0.4 + p_inq * 0.3) # 문/이과 범용 가중치 예시
-            analysis_context = f"\n[사용자 성적 분석 결과]\n- 추정 누적 백분위: 상위 {user_total_percentile:.2f}%\n"
+            user_total_percentile = (p_kor * 0.3 + p_mat * 0.4 + p_inq * 0.3)
+            analysis_context = f"\n### [시스템 내부 성적 진단 보고서]\n"
+            analysis_context += f"- **사용자 추정 누적 백분위**: 상위 {user_total_percentile:.2f}%\n"
             
             # 대학 탐지 시 합격 진단 추가
             if target_univ:
-                # 검색된 메타데이터에서 누백(target) 추출 시도
-                target_per = 100.0
+                # 검색된 메타데이터에서 누백(target) 및 비중(weights) 추출 시도
+                target_per = 2.0  # 기본값
+                weights = {"국어": 0.3, "수학": 0.4, "탐구": 0.3} # 기본 비중
+                
                 for d in relevant_docs:
                     if d.metadata.get('univ') == target_univ:
-                        # '누백' 컬럼 데이터 추출 (문자열인 경우 처리 필요)
                         try:
-                            # '누백                    탐 필수58' 등 복잡한 이름 대응 (실제 데이터값 확인 필요)
-                            # 우선 메타데이터에 '누백'이 있다고 가정
-                            target_raw = d.metadata.get('누백') or d.metadata.get('합격선') or 2.0 
-                            target_per = float(target_raw)
+                            t_raw = d.metadata.get('누백')
+                            if t_raw and t_raw != "": target_per = float(t_raw)
+                            
+                            w_kor = d.metadata.get('국어비중')
+                            w_mat = d.metadata.get('수학비중')
+                            w_inq = d.metadata.get('탐구비중')
+                            if w_kor: weights["국어"] = float(w_kor)
+                            if w_mat: weights["수학"] = float(w_mat)
+                            if w_inq: weights["탐구"] = float(w_inq)
                             break
                         except: continue
                 
+                # 가중치 적용 누백 재계산
+                user_total_percentile = (p_kor * weights["국어"] + p_mat * weights["수학"] + p_inq * weights["탐구"])
+                analysis_context = f"\n### [시스템 내부 성적 진단 보고서 - {target_univ} 기준]\n"
+                analysis_context += f"- **{target_univ} 맞춤형 누백**: 상위 {user_total_percentile:.2f}%\n"
+                
                 status, gap = calculate_admission_status(user_total_percentile, target_per)
-                analysis_context += f"- {target_univ} 진단 결과: [{status}]\n"
+                analysis_context += f"- **최종 합격 진단**: [{status}] (적정 합격선: 상위 {target_per}%)\n"
                 if gap > 0:
-                    analysis_context += f"- 부족한 성적: 수능 표준점수 총점 기준 약 {gap}점 추가 확보 필요\n"
+                    analysis_context += f"- **성적 향상 목표 (Gap Analysis)**: 수능 표준점수 총점 기준 약 {gap}점 추가 확보 필요\n"
                 else:
-                    analysis_context += f"- 조언: 현재 성적을 유지하신다면 안정적인 합격이 가능합니다.\n"
+                    analysis_context += f"- **전문가 조언**: 현재 성적을 유지하신다면 {target_univ} 합격 가능성이 매우 높습니다.\n"
+            
+            analysis_context += "--------------------------------------------------\n"
 
         # 컨텍스트 구성
         context_text = analysis_context + "\n\n" + "\n\n".join([d.page_content for d in relevant_docs])
