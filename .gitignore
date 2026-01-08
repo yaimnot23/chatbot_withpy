@@ -1,0 +1,35 @@
+# [환경 변수]
+# API 키가 들어있는 .env 파일은 절대 공유하면 안 됩니다.
+.env
+
+# [파이썬 관련]
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+
+# [벡터 DB]
+# 로컬에 저장된 가공된 데이터는 배포를 위해 인덱싱된 상태로 함께 올립니다.
+!db/
+
+# [데이터 및 디버그]
+# 원본 엑셀 데이터 (필요에 따라 직접 업로드하려면 제외하세요)
+# data/
+
+# 디버그용 임시 파일 및 로그
+*.txt
+!requirements.txt
+!Dockerfile
+!README.md
+doc/githyp_huggingface_token.md
+search_excel_debug.py
+inspect_db_content.py
+check_db_exact.py
+check_models.py
+inspect_excel.py
+
+# [IDE 설정]
+.vscode/
+.idea/

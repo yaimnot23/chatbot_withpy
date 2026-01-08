@@ -1,0 +1,14 @@
+langchain
+langchain-classic
+langchain-community
+langchain-google-genai
+langchain-chroma
+google-generativeai
+pandas
+openpyxl
+python-dotenv
+tqdm
+fastapi
+uvicorn
+pydantic
+numpy<2.0.0
