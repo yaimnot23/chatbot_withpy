@@ -12,7 +12,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY server.py .
 COPY db/ ./db/
 
-# Hugging Face Spaces 기본 포트
+# Hugging Face Spaces 기본 포트 7860
 EXPOSE 7860
 
 CMD ["python", "server.py"]
