@@ -11,6 +11,13 @@ pinned: false
 
 이 프로젝트는 대입 입시 데이터를 바탕으로 상담을 제공하는 AI 챗봇입니다.
 
+## 📚 문서 (Documentation)
+
+이 프로젝트의 상세한 통합 가이드와 문제 해결 로그는 `doc/` 폴더에 있습니다.
+
+- [통합 가이드 (Integration Guide)](doc/chatbot_integration_guide.md)
+- [문제 해결 로그 (Troubleshooting Log)](doc/chatbot_troubleshooting_log.md)
+
 ## 배포 정보
 
 - **SDK**: Docker
