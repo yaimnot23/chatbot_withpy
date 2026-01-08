@@ -6,7 +6,8 @@ from pydantic import BaseModel
 from dotenv import load_dotenv
 from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
 from langchain_chroma import Chroma
-from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.messages import HumanMessage, AIMessage
 
 # 1. 환경설정 로드
 load_dotenv()
@@ -44,12 +45,14 @@ system_prompt = (
 )
 prompt_template = ChatPromptTemplate.from_messages([
     ("system", system_prompt),
+    MessagesPlaceholder(variable_name="history"),
     ("human", "{input}"),
 ])
 
 # 3. 데이터 모델 정의
 class ChatRequest(BaseModel):
     query: str
+    history: List[dict] = [] # [{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]
 
 class ChatResponse(BaseModel):
     answer: str
@@ -83,11 +86,20 @@ async def chat_endpoint(request: ChatRequest):
         relevant_docs = vectorstore.similarity_search(user_input, **search_kwargs)
         found_majors = sorted(list(set([d.metadata.get('major') for d in relevant_docs])))
         
-        # 컨텍스트 구성
-        context_text = "\n\n".join([d.page_content for d in relevant_docs])
+        # 히스토리 구성
+        history_messages = []
+        for msg in request.history:
+            if msg.get("role") == "user":
+                history_messages.append(HumanMessage(content=msg.get("content", "")))
+            elif msg.get("role") == "assistant":
+                history_messages.append(AIMessage(content=msg.get("content", "")))
         
         # AI 답변 생성
-        messages = prompt_template.format_messages(context=context_text, input=user_input)
+        messages = prompt_template.format_messages(
+            context=context_text, 
+            input=user_input,
+            history=history_messages
+        )
         response = llm.invoke(messages)
         
         # 답변 파싱 (리스트 형태 대응)
