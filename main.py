@@ -7,7 +7,7 @@ from langchain_classic.chains import create_retrieval_chain
 from langchain_classic.chains.combine_documents import create_stuff_documents_chain
 from langchain_core.prompts import ChatPromptTemplate
 
-# 1. 환경설정 로드
+# 1. 환경설정 로드(env에서)
 load_dotenv()
 
 def start_chatbot():
