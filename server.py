@@ -86,6 +86,9 @@ async def chat_endpoint(request: ChatRequest):
         relevant_docs = vectorstore.similarity_search(user_input, **search_kwargs)
         found_majors = sorted(list(set([d.metadata.get('major') for d in relevant_docs])))
         
+        # 컨텍스트 구성
+        context_text = "\n\n".join([d.page_content for d in relevant_docs])
+        
         # 히스토리 구성
         history_messages = []
         for msg in request.history:
