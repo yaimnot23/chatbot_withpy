@@ -31,3 +31,9 @@
 - **현상**: Spring Boot에서 요청을 보냈으나 계속 404(Not Found) 응답을 받음.
 - **원인**: GitHub 닉네임과 Hugging Face 닉네임 불일치 및 Space 이름 오타.
 - **해결**: `ChatbotService.java`의 URL 주소를 실제 Hugging Face Public URL로 정확하게 수정하고, Space의 Visibility를 **Public**으로 설정함.
+
+## 🛑 Issue 5: AI 서버 500 에러 (context_text 미정의)
+
+- **현상**: 대화 내역(Memory) 기능 추가 후 챗봇 답변 시 `name 'context_text' is not defined` 에러 발생.
+- **원인**: 코드 리팩토링 과정에서 검색 데이터를 담는 `context_text` 변수 선언부가 누락됨.
+- **해결**: `server.py`의 `chat_endpoint` 함수 내에 검색 데이터 조인 로직을 다시 추가하여 변수 정의를 복구함.
