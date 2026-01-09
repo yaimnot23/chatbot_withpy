@@ -33,10 +33,11 @@ llm = ChatGoogleGenerativeAI(model="gemini-flash-latest", temperature=0)
 system_prompt = (
     "당신은 대한민국 최고의 대입 입시 전문 AI 컨설턴트입니다. **현재 날짜는 2026년 1월 8일이며, 당신이 상담하는 모든 데이터는 2026학년도 대입(2025년 11월 수능) 기준입니다.**\n\n"
     "[상담 가이드라인]\n"
-    "1. **학습 데이터 활용:** 지식(Context)에 `### [시스템 내부 성적 진단 보고서]`가 포함되어 있다면, 이를 바탕으로 개인화된 합격 가능성을 즉시 진단하세요. **만약 해당 보고서가 없다면, 성적 정보가 없는 것으로 간주하고 대학별 일반 공고나 전형 방법 등 객관적 데이터 위주로 상담하세요.**\n"
-    "2. **계산 금지 지침:** 보고서가 있을 경우, 이미 계산된 결과를 당신의 전문 지식인 것처럼 확신 있게 전달하세요. 직접 계산하려 하지 말고 제공된 분석 결과를 최우선으로 신뢰하세요.\n"
-    "3. **확신 있는 판정:** 분석 보고서가 있을 때는 [안정/적정/소신/불가] 판정을 명확히 말하고, Gap Analysis를 통해 구체적인 목표 점수를 제시하세요.\n"
-    "4. **데이터 가독성:** 모든 점수는 소수점 첫째 자리까지, 정원은 정수로 표기하세요.\n\n"
+    "1. **전문 분야 한정:** 당신은 오직 '대학교 입시', '진학 상담', '성적 진단'과 관련된 질문에만 답변합니다. **입시나 성적과 전혀 관련 없는 질문(예: 요리 레시피, 일반 상식, 일상 대화 등)에 대해서는 \"죄송합니다. 저는 대입 입시 및 성적 상담 전문 AI 컨설턴트로, 해당 질문에는 답변을 드릴 수 없습니다.\"라고 정중히 거절하세요.**\n"
+    "2. **학습 데이터 활용:** 지식(Context)에 `### [시스템 내부 성적 진단 보고서]`가 포함되어 있다면, 이를 바탕으로 개인화된 합격 가능성을 즉시 진단하세요. 보고서가 없다면 객관적 데이터 위주로 상담하세요.\n"
+    "3. **계산 금지 지침:** 보고서가 있을 경우, 이미 계산된 결과를 최우선으로 신뢰하고 직접 계산하지 마세요.\n"
+    "4. **확신 있는 판정:** [안정/적정/소신/불가] 판정을 명확히 말하고, Gap Analysis를 제시하세요.\n"
+    "5. **데이터 가독성:** 점수는 소수점 첫째 자리까지, 정원은 정수로 표기하세요.\n\n"
     "[사용자별 전문 진단 보고서 및 입시 데이터]:\n{context}"
 )
 prompt_template = ChatPromptTemplate.from_messages([
@@ -54,14 +55,16 @@ class UserScore(BaseModel):
 
 class ChatRequest(BaseModel):
     query: str
-    history: List[dict] = [] # [{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]
+    history: List[dict] = []
     userScores: Optional[List[UserScore]] = None
+    sessionId: Optional[int] = None # 추가
 
 class ChatResponse(BaseModel):
     answer: str
     detected_univ: Optional[str] = None
     found_majors: List[str] = []
-    analysis_result: Optional[str] = None # 성적 분석 결과 요약
+    analysis_result: Optional[str] = None
+    title: Optional[str] = None # 추가 (새로운 대화 제목)
 
 # 5. 성적 분석 엔진 및 유틸리티
 # 표준점수 -> 누적 백분위(%) 매핑 (2026학년도 추정치 기반 샘플 데이터)
@@ -211,10 +214,28 @@ async def chat_endpoint(request: ChatRequest):
         else:
             final_answer = str(response.content)
 
+        # [추가] 제목 자동 생성 로직 (첫 대화일 경우에만)
+        new_title = None
+        if not request.history and not any(msg for msg in history_messages):
+            try:
+                title_prompt = (
+                    "당신은 대화 제목 요약 전문가입니다. 아래 사용자의 질문을 분석하여 15자 내외의 명사형 제목으로 요약하세요.\n"
+                    "예: '서울대 경영학과 합격선 알려줘' -> '서울대 경영학과 입시 문의'\n"
+                    "예: '내 성적으로 어디 갈 수 있어?' -> '사용자 맞춤 성적 진단'\n\n"
+                    f"질문: {user_input}\n"
+                    "제목:"
+                )
+                title_response = llm.invoke(title_prompt)
+                new_title = str(title_response.content).strip().replace('"', '').replace("'", "")
+            except Exception as e:
+                print(f"DEBUG: Title generation failed: {e}")
+                new_title = user_input[:15] + "..." if len(user_input) > 15 else user_input
+
         return ChatResponse(
             answer=final_answer.strip(),
             detected_univ=target_univ,
-            found_majors=found_majors[:15] # 상위 15개 학과만 정보로 제공
+            found_majors=found_majors[:15],
+            title=new_title # 제목 반환
         )
 
     except Exception as e:
